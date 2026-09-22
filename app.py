@@ -344,7 +344,7 @@ if numeric_cols:
 # Strong correlations
 if len(numeric_cols) >= 2:
     corr = df[numeric_cols].corr().abs()
-    np.fill_diagonal(corr.values, 0)
+    corr.values[np.diag_indices_from(corr)] = 0
     max_corr_val = corr.values.max()
     if max_corr_val >= 0.7:
         idx = np.unravel_index(np.argmax(corr.values), corr.shape)
