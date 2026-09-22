@@ -1,4 +1,4 @@
-f"""
+"""
 Dataset Analyzer - A Streamlit prototype for exploring CSV datasets.
 
 Run with:  streamlit run app.py
