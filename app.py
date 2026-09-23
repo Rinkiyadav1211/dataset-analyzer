@@ -1,357 +1,767 @@
-"""
-Dataset Analyzer - A Streamlit prototype for exploring CSV datasets.
-
-Run with:  streamlit run app.py
-
-Built with NumPy, Pandas and Matplotlib.
-"""
-
-import io
-
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import streamlit as st
 
-st.set_page_config(page_title="Dataset Analyzer", layout="wide")
+st.set_page_config(
+    page_title="Dataset Analyzer",
+    page_icon="📊",
+    layout="wide"
+)
 
-# ----------------------------------------------------------------------
-# Small built-in sample dataset so the app can be tested without a file
-# ----------------------------------------------------------------------
-def get_sample_dataset() -> pd.DataFrame:
-    data = {
-        "StudentID": list(range(1, 16)),
+st.title("📊 Dataset Analyzer")
+st.write(
+    "Upload any CSV file to perform statistical analysis, "
+    "data operations, comparisons and visualizations."
+)
+
+
+# ================= SAMPLE DATA =================
+
+def sample_data():
+    return pd.DataFrame({
+        "StudentID": range(1, 16),
         "Name": [
             "Aarav", "Vivaan", "Aditya", "Vihaan", "Arjun",
             "Sai", "Reyansh", "Krishna", "Ishaan", "Rohan",
-            "Ananya", "Diya", "Isha", "Kavya", "Meera",
+            "Ananya", "Diya", "Isha", "Kavya", "Meera"
         ],
-        "Branch": [
-            "CSE", "ECE", "CSE", "ME", "CSE",
-            "ECE", "CSE", "ME", "CSE", "ECE",
-            "CSE", "ME", "CSE", "ECE", "CSE",
+        "Year": [1, 1, 2, 2, 3, 3, 4, 4, 3, 2, 1, 4, 3, 2, 4],
+        "Department": [
+            "CSE", "CSE", "AI", "CSE", "AI",
+            "CSE", "AI", "CSE", "AI", "CSE",
+            "AI", "CSE", "AI", "CSE", "AI"
         ],
-        "Attendance": [85, 92, 78, 65, 88, 74, 95, 60, 82, 90, 77, 68, 91, 84, 73],
-        "Marks": [78, 85, 62, 55, 91, 70, 88, 45, 76, 82, 69, 58, 94, 80, 66],
-        "Study_Hours": [4, 5, 3, 2, 6, 3, 6, 1, 4, 5, 3, 2, 6, 4, 3],
-        "Placed": [
-            "Yes", "Yes", "No", "No", "Yes",
-            "No", "Yes", "No", "Yes", "Yes",
-            "No", "No", "Yes", "Yes", "No",
+        "Attendance": [
+            88, 76, 91, 65, 82, 95, 72, 86,
+            79, 68, 90, np.nan, 84, 73, 89
         ],
-    }
-    df = pd.DataFrame(data)
-    # Sprinkle a couple of missing values so the missing-value features
-    # have something real to show, just like a messy real-world CSV.
-    df.loc[3, "Marks"] = np.nan
-    df.loc[10, "Attendance"] = np.nan
-    return df
+        "Marks": [
+            82, 71, 94, 62, 78, 96, 69, 88,
+            75, 66, 92, 81, 85, 70, 91
+        ],
+        "Projects": [3, 2, 5, 1, 3, 6, 2, 4, 3, 1, 5, 4, 4, 2, 5]
+    })
 
 
-# ----------------------------------------------------------------------
-# Session state
-# ----------------------------------------------------------------------
-if "df" not in st.session_state:
-    st.session_state.df = None
+# ================= UPLOAD =================
 
-
-st.title("📊 Dataset Analyzer")
-st.caption("Upload any CSV file and instantly get an overview, statistics, "
-           "data operations and visualizations. Built with NumPy, Pandas and Matplotlib.")
-
-# ----------------------------------------------------------------------
-# 1. Upload Dataset
-# ----------------------------------------------------------------------
 st.header("1️⃣ Upload Dataset")
 
-col_a, col_b = st.columns([2, 1])
+file = st.file_uploader("Upload a CSV file", type=["csv"])
 
-with col_a:
-    uploaded_file = st.file_uploader("Upload a CSV file", type=None)
+if file:
+    try:
+        df = pd.read_csv(file)
+        st.success("CSV file loaded successfully!")
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
+        st.stop()
+else:
+    if st.button("Use Sample Dataset"):
+        st.session_state.use_sample = True
 
-with col_b:
-    st.write("")
-    st.write("")
-    use_sample = st.button("Use Sample Dataset")
-
-if use_sample:
-    st.session_state.df = get_sample_dataset()
-    st.success("Sample dataset loaded.")
-
-if uploaded_file is not None:
-    if not uploaded_file.name.lower().endswith(".csv"):
-        st.error("❌ Invalid file type. Please upload a file with a .csv extension.")
+    if st.session_state.get("use_sample", False):
+        df = sample_data()
+        st.info("Sample dataset loaded.")
     else:
-        try:
-            st.session_state.df = pd.read_csv(uploaded_file)
-            st.success(f"Loaded '{uploaded_file.name}' successfully.")
-        except Exception as e:
-            st.error(f"❌ Could not read this CSV file. Details: {e}")
+        st.info("Upload a CSV file or use the sample dataset.")
+        st.stop()
 
-df = st.session_state.df
+df = df.reset_index(drop=True)
 
-if df is None:
-    st.info("Upload a CSV file or click 'Use Sample Dataset' to get started.")
-    st.stop()
 
-# Helpful column-type split used throughout the app
-numeric_cols = df.select_dtypes(include=np.number).columns.tolist()
-categorical_cols = df.select_dtypes(exclude=np.number).columns.tolist()
+# ================= OVERVIEW =================
 
-# ----------------------------------------------------------------------
-# 2. Dataset Overview
-# ----------------------------------------------------------------------
 st.header("2️⃣ Dataset Overview")
 
 c1, c2, c3, c4 = st.columns(4)
-c1.metric("Rows", df.shape[0])
-c2.metric("Columns", df.shape[1])
-c3.metric("Missing values (total)", int(df.isnull().sum().sum()))
-c4.metric("Duplicate rows", int(df.duplicated().sum()))
 
-with st.expander("Column names & data types", expanded=True):
-    dtype_df = pd.DataFrame({
-        "Column": df.columns,
-        "Data Type": [str(t) for t in df.dtypes],
-    })
-    st.dataframe(dtype_df, use_container_width=True)
+c1.metric("Rows", len(df))
+c2.metric("Columns", len(df.columns))
+c3.metric("Missing Values", int(df.isna().sum().sum()))
+c4.metric("Duplicate Rows", int(df.duplicated().sum()))
 
-with st.expander("First 5 rows"):
+st.subheader("Column Information")
+
+info = pd.DataFrame({
+    "Column": df.columns,
+    "Data Type": df.dtypes.astype(str),
+    "Missing Values": df.isna().sum(),
+    "Unique Values": df.nunique()
+})
+
+st.dataframe(info, use_container_width=True)
+
+col1, col2 = st.columns(2)
+
+with col1:
+    st.subheader("First 5 Rows")
     st.dataframe(df.head(), use_container_width=True)
 
-with st.expander("Last 5 rows"):
+with col2:
+    st.subheader("Last 5 Rows")
     st.dataframe(df.tail(), use_container_width=True)
 
-with st.expander("Missing values per column"):
-    missing_df = df.isnull().sum().reset_index()
-    missing_df.columns = ["Column", "Missing Values"]
-    st.dataframe(missing_df, use_container_width=True)
-
-st.write(f"**Duplicate rows found:** {int(df.duplicated().sum())}")
-
-# ----------------------------------------------------------------------
-# 3. Statistical Analysis
-# ----------------------------------------------------------------------
-st.header("3️⃣ Statistical Analysis (Numerical Columns)")
-
-if not numeric_cols:
-    st.warning("No numerical columns found in this dataset, so statistics can't be computed.")
-else:
-    stats_rows = []
-    for col in numeric_cols:
-        series = df[col].dropna()
-        values = series.to_numpy()  # NumPy array for calculations
-        if len(values) == 0:
-            continue
-        stats_rows.append({
-            "Column": col,
-            "Mean": np.mean(values),
-            "Median": np.median(values),
-            "Min": np.min(values),
-            "Max": np.max(values),
-            "Std Dev": np.std(values),
-            "Variance": np.var(values),
-            "Sum": np.sum(values),
-        })
-    stats_df = pd.DataFrame(stats_rows).round(2)
-    st.dataframe(stats_df, use_container_width=True)
-    st.caption("Pandas selects and cleans each column; NumPy computes the actual statistics "
-               "(mean, median, min, max, std, variance, sum).")
-
-# ----------------------------------------------------------------------
-# 4. Data Operations
-# ----------------------------------------------------------------------
-st.header("4️⃣ Data Operations")
-
-op_tabs = st.tabs(["Select Column", "Filter", "Sort", "Group By", "Value Counts", "Correlation"])
-
-with op_tabs[0]:
-    col_select = st.selectbox("Choose a column to view", df.columns, key="select_col")
-    st.dataframe(df[[col_select]], use_container_width=True)
-
-with op_tabs[1]:
-    filter_col = st.selectbox("Column to filter on", df.columns, key="filter_col")
-    if filter_col in numeric_cols:
-        min_v, max_v = float(df[filter_col].min()), float(df[filter_col].max())
-        rng = st.slider("Keep rows where value is between:", min_v, max_v, (min_v, max_v))
-        filtered = df[df[filter_col].between(rng[0], rng[1])]
-    else:
-        options = df[filter_col].dropna().unique().tolist()
-        chosen = st.multiselect("Keep rows where value is one of:", options, default=options)
-        filtered = df[df[filter_col].isin(chosen)] if chosen else df.iloc[0:0]
-    st.write(f"Showing {len(filtered)} of {len(df)} rows.")
-    st.dataframe(filtered, use_container_width=True)
-
-with op_tabs[2]:
-    sort_col = st.selectbox("Sort by column", df.columns, key="sort_col")
-    ascending = st.radio("Order", ["Ascending", "Descending"], horizontal=True) == "Ascending"
-    st.dataframe(df.sort_values(by=sort_col, ascending=ascending), use_container_width=True)
-
-with op_tabs[3]:
-    if not categorical_cols:
-        st.info("No categorical columns available to group by.")
-    elif not numeric_cols:
-        st.info("No numerical columns available to aggregate.")
-    else:
-        group_col = st.selectbox("Group by column", categorical_cols, key="group_col")
-        agg_col = st.selectbox("Numerical column to aggregate", numeric_cols, key="agg_col")
-        agg_func = st.selectbox("Aggregation", ["mean", "sum", "count", "min", "max"], key="agg_func")
-        grouped = df.groupby(group_col)[agg_col].agg(agg_func).reset_index()
-        st.dataframe(grouped, use_container_width=True)
-
-with op_tabs[4]:
-    vc_col = st.selectbox("Column for value counts", df.columns, key="vc_col")
-    st.dataframe(df[vc_col].value_counts().reset_index(), use_container_width=True)
-
-with op_tabs[5]:
-    if len(numeric_cols) < 2:
-        st.info("Need at least two numerical columns to compute correlations.")
-    else:
-        corr = df[numeric_cols].corr()
-        st.dataframe(corr.round(2), use_container_width=True)
-
-# ----------------------------------------------------------------------
-# 5. Visualizations
-# ----------------------------------------------------------------------
-st.header("5️⃣ Visualization")
-
-chart_type = st.selectbox(
-    "Choose a chart type",
-    ["Line Chart", "Bar Chart", "Pie Chart", "Scatter Plot", "Histogram", "Box Plot"],
+st.subheader("Missing Values Per Column")
+st.dataframe(
+    df.isna().sum().rename("Missing Values"),
+    use_container_width=True
 )
 
-fig, ax = plt.subplots(figsize=(7, 4))
-chart_ok = True
-error_msg = ""
 
-try:
-    if chart_type == "Line Chart":
-        if not numeric_cols:
-            chart_ok, error_msg = False, "No numerical column available for a line chart."
-        else:
-            y_col = st.selectbox("Column to plot", numeric_cols, key="line_col")
-            ax.plot(df[y_col].values)
-            ax.set_title(f"Line Chart: {y_col}")
-            ax.set_xlabel("Row Index")
-            ax.set_ylabel(y_col)
+# ================= STATISTICS =================
 
-    elif chart_type == "Bar Chart":
-        if not categorical_cols:
-            chart_ok, error_msg = False, "No categorical column available for a bar chart."
-        else:
-            bar_col = st.selectbox("Categorical column", categorical_cols, key="bar_col")
-            counts = df[bar_col].value_counts()
-            ax.bar(counts.index.astype(str), counts.values)
-            ax.set_title(f"Bar Chart: {bar_col}")
-            ax.set_xlabel(bar_col)
-            ax.set_ylabel("Count")
-            plt.xticks(rotation=45, ha="right")
+st.header("3️⃣ Statistical Analysis")
 
-    elif chart_type == "Pie Chart":
-        if not categorical_cols:
-            chart_ok, error_msg = False, "No categorical column available for a pie chart."
-        else:
-            pie_col = st.selectbox("Categorical column", categorical_cols, key="pie_col")
-            counts = df[pie_col].value_counts()
-            if len(counts) > 10:
-                chart_ok, error_msg = False, "Too many unique categories for a readable pie chart (limit: 10)."
-            else:
-                ax.pie(counts.values, labels=counts.index.astype(str), autopct="%1.1f%%")
-                ax.set_title(f"Pie Chart: {pie_col}")
+num_cols = df.select_dtypes(include=np.number).columns.tolist()
+cat_cols = df.select_dtypes(exclude=np.number).columns.tolist()
 
-    elif chart_type == "Scatter Plot":
-        if len(numeric_cols) < 2:
-            chart_ok, error_msg = False, "Need at least two numerical columns for a scatter plot."
+if num_cols:
+
+    statistics = pd.DataFrame({
+        "Mean": [np.nanmean(df[c]) for c in num_cols],
+        "Median": [np.nanmedian(df[c]) for c in num_cols],
+        "Minimum": [np.nanmin(df[c]) for c in num_cols],
+        "Maximum": [np.nanmax(df[c]) for c in num_cols],
+        "Std Dev": [np.nanstd(df[c]) for c in num_cols],
+        "Variance": [np.nanvar(df[c]) for c in num_cols],
+        "Sum": [np.nansum(df[c]) for c in num_cols]
+    }, index=num_cols)
+
+    st.dataframe(
+        statistics.round(2),
+        use_container_width=True
+    )
+else:
+    st.warning("No numerical columns found.")
+
+
+# ================= DATA OPERATIONS =================
+
+st.header("4️⃣ Data Operations")
+
+selected_col = st.selectbox(
+    "Select Column",
+    df.columns
+)
+
+op1, op2 = st.columns(2)
+
+with op1:
+
+    st.subheader("Filter")
+
+    if pd.api.types.is_numeric_dtype(df[selected_col]):
+
+        minimum = float(df[selected_col].min())
+        maximum = float(df[selected_col].max())
+
+        if minimum != maximum:
+
+            values = st.slider(
+                "Select range",
+                minimum,
+                maximum,
+                (minimum, maximum)
+            )
+
+            filtered = df[
+                df[selected_col].between(
+                    values[0],
+                    values[1]
+                )
+            ]
+
+            st.dataframe(
+                filtered,
+                use_container_width=True
+            )
+
+    else:
+
+        values = df[selected_col].dropna().unique().tolist()
+
+        choice = st.selectbox(
+            "Select value",
+            ["All"] + values
+        )
+
+        if choice == "All":
+            filtered = df
         else:
-            x_col = st.selectbox("X-axis", numeric_cols, key="scatter_x")
-            y_col = st.selectbox("Y-axis", numeric_cols, key="scatter_y",
-                                  index=min(1, len(numeric_cols) - 1))
-            ax.scatter(df[x_col], df[y_col])
-            ax.set_title(f"Scatter Plot: {x_col} vs {y_col}")
+            filtered = df[
+                df[selected_col] == choice
+            ]
+
+        st.dataframe(
+            filtered,
+            use_container_width=True
+        )
+
+
+with op2:
+
+    st.subheader("Sort")
+
+    order = st.radio(
+        "Order",
+        ["Ascending", "Descending"],
+        horizontal=True
+    )
+
+    sorted_df = df.sort_values(
+        selected_col,
+        ascending=(order == "Ascending")
+    )
+
+    st.dataframe(
+        sorted_df,
+        use_container_width=True
+    )
+
+
+st.subheader("Value Counts")
+
+st.dataframe(
+    df[selected_col].value_counts(dropna=False)
+    .rename("Count"),
+    use_container_width=True
+)
+
+
+# ================= GROUP BY =================
+
+if cat_cols and num_cols:
+
+    st.subheader("Group By Comparison")
+
+    group_col = st.selectbox(
+        "Group By",
+        cat_cols
+    )
+
+    value_col = st.selectbox(
+        "Numeric Value",
+        num_cols
+    )
+
+    grouped = df.groupby(group_col)[value_col].agg(
+        ["count", "mean", "min", "max", "sum"]
+    ).reset_index()
+
+    grouped.columns = [
+        group_col,
+        "Count",
+        "Average",
+        "Minimum",
+        "Maximum",
+        "Total"
+    ]
+
+    st.dataframe(
+        grouped.round(2),
+        use_container_width=True
+    )
+
+
+# ================= COMPARISON =================
+
+st.header("5️⃣ 📊 Comparison Analysis")
+
+st.write(
+    "This section compares different categories, years "
+    "and numerical columns."
+)
+
+if num_cols:
+
+    comparison_type = st.radio(
+        "Choose comparison type",
+        [
+            "Category-wise Comparison",
+            "Two Numerical Columns"
+        ],
+        horizontal=True
+    )
+
+    # CATEGORY COMPARISON
+
+    if comparison_type == "Category-wise Comparison":
+
+        if cat_cols:
+
+            category = st.selectbox(
+                "Select Category",
+                cat_cols
+            )
+
+            metric = st.selectbox(
+                "Select Metric",
+                num_cols
+            )
+
+            comparison = df.groupby(category)[metric].agg(
+                ["count", "mean", "median", "min", "max"]
+            ).reset_index()
+
+            comparison.columns = [
+                category,
+                "Count",
+                "Average",
+                "Median",
+                "Minimum",
+                "Maximum"
+            ]
+
+            st.subheader("Comparison Table")
+
+            st.dataframe(
+                comparison.round(2),
+                use_container_width=True
+            )
+
+            st.subheader(
+                f"Average {metric} by {category}"
+            )
+
+            fig, ax = plt.subplots(figsize=(9, 5))
+
+            ax.bar(
+                comparison[category].astype(str),
+                comparison["Average"]
+            )
+
+            ax.set_xlabel(category)
+            ax.set_ylabel(f"Average {metric}")
+            ax.set_title(
+                f"{metric} Comparison by {category}"
+            )
+
+            plt.xticks(rotation=30)
+            st.pyplot(fig)
+            plt.close(fig)
+
+        else:
+            st.warning(
+                "A categorical column is required."
+            )
+
+    # TWO COLUMN COMPARISON
+
+    else:
+
+        if len(num_cols) >= 2:
+
+            x_col = st.selectbox(
+                "First Numerical Column",
+                num_cols
+            )
+
+            y_col = st.selectbox(
+                "Second Numerical Column",
+                [c for c in num_cols if c != x_col]
+            )
+
+            comparison_df = df[
+                [x_col, y_col]
+            ].dropna()
+
+            st.subheader(
+                f"{x_col} vs {y_col}"
+            )
+
+            st.dataframe(
+                comparison_df.describe().round(2),
+                use_container_width=True
+            )
+
+            fig, ax = plt.subplots(figsize=(9, 5))
+
+            ax.scatter(
+                comparison_df[x_col],
+                comparison_df[y_col]
+            )
+
             ax.set_xlabel(x_col)
             ax.set_ylabel(y_col)
 
-    elif chart_type == "Histogram":
-        if not numeric_cols:
-            chart_ok, error_msg = False, "No numerical column available for a histogram."
+            ax.set_title(
+                f"{x_col} vs {y_col}"
+            )
+
+            st.pyplot(fig)
+            plt.close(fig)
+
         else:
-            hist_col = st.selectbox("Column", numeric_cols, key="hist_col")
-            ax.hist(df[hist_col].dropna().values, bins=15, edgecolor="black")
-            ax.set_title(f"Histogram: {hist_col}")
-            ax.set_xlabel(hist_col)
-            ax.set_ylabel("Frequency")
+            st.warning(
+                "At least two numerical columns are required."
+            )
 
-    elif chart_type == "Box Plot":
-        if not numeric_cols:
-            chart_ok, error_msg = False, "No numerical column available for a box plot."
-        else:
-            box_col = st.selectbox("Column", numeric_cols, key="box_col")
-            ax.boxplot(df[box_col].dropna().values, vert=True)
-            ax.set_title(f"Box Plot: {box_col}")
-            ax.set_ylabel(box_col)
 
-    if chart_ok:
-        plt.tight_layout()
-        st.pyplot(fig)
-    else:
-        st.warning(f"⚠️ Could not generate this chart. {error_msg}")
+# ================= YEAR ANALYSIS =================
 
-except Exception as e:
-    st.warning(f"⚠️ Could not generate this chart. Details: {e}")
+st.header("6️⃣ 📅 Year-wise / Category-wise Analysis")
 
-plt.close(fig)
+year_cols = [
+    c for c in df.columns
+    if any(
+        word in str(c).lower()
+        for word in ["year", "class", "semester"]
+    )
+]
 
-# ----------------------------------------------------------------------
-# 6. Automatic Insights
-# ----------------------------------------------------------------------
-st.header("6️⃣ Automatic Insights")
+if year_cols and num_cols:
 
-insights = []
+    year_col = st.selectbox(
+        "Select Year/Class/Semester Column",
+        year_cols
+    )
 
-# Basic shape summary
-insights.append(f"The dataset has **{df.shape[0]} rows** and **{df.shape[1]} columns** "
-                 f"({len(numeric_cols)} numerical, {len(categorical_cols)} categorical).")
+    metric = st.selectbox(
+        "Select Performance Metric",
+        num_cols,
+        key="year_metric"
+    )
 
-# Missing values
-total_missing = int(df.isnull().sum().sum())
-if total_missing > 0:
-    worst_missing_col = df.isnull().sum().idxmax()
-    worst_missing_count = int(df.isnull().sum().max())
-    insights.append(f"Column **'{worst_missing_col}'** has the most missing values "
-                     f"({worst_missing_count} missing).")
+    year_analysis = df.groupby(
+        year_col
+    )[metric].agg(
+        ["count", "mean", "max", "min"]
+    ).reset_index()
+
+    year_analysis.columns = [
+        year_col,
+        "Students",
+        "Average",
+        "Maximum",
+        "Minimum"
+    ]
+
+    st.subheader("Year-wise Comparison Table")
+
+    st.dataframe(
+        year_analysis.round(2),
+        use_container_width=True
+    )
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+
+    ax.plot(
+        year_analysis[year_col].astype(str),
+        year_analysis["Average"],
+        marker="o"
+    )
+
+    ax.set_xlabel(year_col)
+    ax.set_ylabel(f"Average {metric}")
+
+    ax.set_title(
+        f"{metric} - Year-wise Comparison"
+    )
+
+    ax.grid(alpha=0.2)
+
+    st.pyplot(fig)
+    plt.close(fig)
+
 else:
-    insights.append("There are no missing values in this dataset.")
 
-# Duplicates
-dup_count = int(df.duplicated().sum())
-if dup_count > 0:
-    insights.append(f"There are **{dup_count} duplicate rows** in the dataset.")
+    st.info(
+        "No Year/Class/Semester column found. "
+        "Use Category-wise Comparison above."
+    )
 
-# Highest average numerical column
-if numeric_cols:
-    means = df[numeric_cols].mean(numeric_only=True)
-    top_mean_col = means.idxmax()
-    insights.append(f"Column **'{top_mean_col}'** has the highest average value "
-                     f"({means.max():.2f}).")
 
-    overall_max_col = df[numeric_cols].max().idxmax()
-    overall_max_val = df[numeric_cols].max().max()
-    overall_min_col = df[numeric_cols].min().idxmin()
-    overall_min_val = df[numeric_cols].min().min()
-    insights.append(f"The overall maximum value is **{overall_max_val}** in column '{overall_max_col}', "
-                     f"and the overall minimum value is **{overall_min_val}** in column '{overall_min_col}'.")
+# ================= CORRELATION =================
 
-# Strong correlations
-if len(numeric_cols) >= 2:
-    corr = df[numeric_cols].corr().abs()
-    max_corr_val = corr.values.max()
-    if max_corr_val >= 0.7:
-        idx = np.unravel_index(np.argmax(corr.values), corr.shape)
-        col1, col2 = corr.index[idx[0]], corr.columns[idx[1]]
-        insights.append(f"Columns **'{col1}'** and **'{col2}'** show a strong correlation "
-                         f"({max_corr_val:.2f}).")
-    else:
-        insights.append("No strong correlations (≥ 0.7) were found between numerical columns.")
+st.header("7️⃣ 🔗 Correlation Analysis")
 
-for point in insights:
-    st.markdown(f"- {point}")
+if len(num_cols) >= 2:
+
+    correlation = df[num_cols].corr()
+
+    st.dataframe(
+        correlation.round(2),
+        use_container_width=True
+    )
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    image = ax.imshow(
+        correlation.values,
+        aspect="auto"
+    )
+
+    ax.set_xticks(
+        range(len(correlation.columns))
+    )
+
+    ax.set_yticks(
+        range(len(correlation.columns))
+    )
+
+    ax.set_xticklabels(
+        correlation.columns,
+        rotation=45,
+        ha="right"
+    )
+
+    ax.set_yticklabels(
+        correlation.columns
+    )
+
+    ax.set_title("Correlation Matrix")
+
+    fig.colorbar(image, ax=ax)
+
+    st.pyplot(fig)
+    plt.close(fig)
+
+else:
+
+    st.info(
+        "At least two numerical columns are required."
+    )
+
+
+# ================= VISUALIZATION =================
+
+st.header("8️⃣ 📈 Visualization")
+
+if num_cols:
+
+    chart = st.selectbox(
+        "Choose Chart Type",
+        [
+            "Bar Chart",
+            "Line Chart",
+            "Histogram",
+            "Scatter Plot",
+            "Box Plot"
+        ]
+    )
+
+    column = st.selectbox(
+        "Select Column",
+        num_cols
+    )
+
+    if chart == "Bar Chart":
+
+        values = df[column].dropna()
+
+        fig, ax = plt.subplots(
+            figsize=(9, 5)
+        )
+
+        ax.bar(
+            range(len(values)),
+            values
+        )
+
+        ax.set_xlabel("Row")
+        ax.set_ylabel(column)
+        ax.set_title(
+            f"{column} - Bar Chart"
+        )
+
+        st.pyplot(fig)
+        plt.close(fig)
+
+    elif chart == "Line Chart":
+
+        values = df[column].dropna()
+
+        fig, ax = plt.subplots(
+            figsize=(9, 5)
+        )
+
+        ax.plot(
+            values,
+            marker="o"
+        )
+
+        ax.set_xlabel("Row")
+        ax.set_ylabel(column)
+        ax.set_title(
+            f"{column} - Line Chart"
+        )
+
+        st.pyplot(fig)
+        plt.close(fig)
+
+    elif chart == "Histogram":
+
+        fig, ax = plt.subplots(
+            figsize=(9, 5)
+        )
+
+        ax.hist(
+            df[column].dropna(),
+            bins=10
+        )
+
+        ax.set_xlabel(column)
+        ax.set_ylabel("Frequency")
+
+        ax.set_title(
+            f"{column} - Distribution"
+        )
+
+        st.pyplot(fig)
+        plt.close(fig)
+
+    elif chart == "Box Plot":
+
+        fig, ax = plt.subplots(
+            figsize=(8, 5)
+        )
+
+        ax.boxplot(
+            df[column].dropna()
+        )
+
+        ax.set_ylabel(column)
+
+        ax.set_title(
+            f"{column} - Box Plot"
+        )
+
+        st.pyplot(fig)
+        plt.close(fig)
+
+    elif chart == "Scatter Plot":
+
+        if len(num_cols) >= 2:
+
+            y_column = st.selectbox(
+                "Select Y-axis Column",
+                [c for c in num_cols if c != column]
+            )
+
+            data = df[
+                [column, y_column]
+            ].dropna()
+
+            fig, ax = plt.subplots(
+                figsize=(9, 5)
+            )
+
+            ax.scatter(
+                data[column],
+                data[y_column]
+            )
+
+            ax.set_xlabel(column)
+            ax.set_ylabel(y_column)
+
+            ax.set_title(
+                f"{column} vs {y_column}"
+            )
+
+            st.pyplot(fig)
+            plt.close(fig)
+
+
+# ================= AUTOMATIC INSIGHTS =================
+
+st.header("9️⃣ 💡 Automatic Insights")
+
+st.write(
+    f"• Dataset contains **{len(df)} rows** "
+    f"and **{len(df.columns)} columns**."
+)
+
+st.write(
+    f"• There are **{len(num_cols)} numerical columns** "
+    f"and **{len(cat_cols)} categorical columns**."
+)
+
+missing = df.isna().sum()
+
+if missing.max() > 0:
+
+    missing_column = missing.idxmax()
+
+    st.write(
+        f"• **{missing_column}** has the highest "
+        f"number of missing values: "
+        f"**{int(missing.max())}**."
+    )
+
+else:
+
+    st.write(
+        "• The dataset has **no missing values**."
+    )
+
+
+if num_cols:
+
+    averages = df[num_cols].mean()
+
+    highest = averages.idxmax()
+
+    st.write(
+        f"• **{highest}** has the highest "
+        f"average value: "
+        f"**{averages[highest]:.2f}**."
+    )
+
+    max_column = df[num_cols].max().idxmax()
+    max_value = df[max_column].max()
+
+    min_column = df[num_cols].min().idxmin()
+    min_value = df[min_column].min()
+
+    st.write(
+        f"• Overall maximum is "
+        f"**{max_value:.2f}** in **{max_column}**."
+    )
+
+    st.write(
+        f"• Overall minimum is "
+        f"**{min_value:.2f}** in **{min_column}**."
+    )
+
+
+if len(num_cols) >= 2:
+
+    corr = df[num_cols].corr()
+
+    best_pair = None
+    best_value = -1
+
+    for i in range(len(num_cols)):
+
+        for j in range(i + 1, len(num_cols)):
+
+            value = abs(corr.iloc[i, j])
+
+            if pd.notna(value) and value > best_value:
+
+                best_value = value
+
+                best_pair = (
+                    num_cols[i],
+                    num_cols[j],
+                    corr.iloc[i, j]
+                )
+
+    if best_pair:
+
+        a, b, value = best_pair
+
+        st.write(
+            f"• Strongest relationship is between "
+            f"**{a}** and **{b}** "
+            f"with correlation **{value:.2f}**."
+        )
+
+
+st.success(
+    "✅ Analysis completed successfully. "
+    "Use Comparison Analysis to compare different categories "
+    "and numerical columns."
+        )
